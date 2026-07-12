@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Throngling, Camera, GameEvent, WeaponEffect, DeathAnimation, Particle, ScreenShake } from '@/types/game';
-import { MAP_SIZE, SPAWN_AREA, SPAWN_AREA_SECOND, ISLAND_POSITIONS, HALLOWEEN_ISLAND_WIDTH, THRONGLING_SPEED, WEAPON_CONFIG, DEATH_ANIMATION_DURATION, BLOOD_SPLASH_DURATION, MAX_POPULATION, ADMIN_FREE_SPAWN, THRONG_NAMES } from '@/lib/constants';
+import { MAP_SIZE, SPAWN_AREA, SPAWN_AREA_SECOND, ISLAND_POSITIONS, HALLOWEEN_ISLAND_WIDTH, THRONGLING_SPEED, WEAPON_CONFIG, DEATH_ANIMATION_DURATION, BLOOD_SPLASH_DURATION, MAX_POPULATION, THRONG_NAMES } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { useAudio } from '@/contexts/AudioContext';
@@ -51,7 +52,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { playSound } = useAudio();
   const wallet = useWallet();
-  const { publicKey } = wallet;
+  const { publicKey, sendTransaction } = wallet;
+  const { connection } = useConnection();
   const [thronglings, setThronglings] = useState<Throngling[]>([]);
   const [weaponEffects, setWeaponEffects] = useState<WeaponEffect[]>([]);
   const [deathAnimations, setDeathAnimations] = useState<DeathAnimation[]>([]);
@@ -420,112 +422,65 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   useEffect(() => {
     const handleSpawnThrongling = async (e: CustomEvent) => {
       const { name, characterType, x, y } = e.detail;
-      console.log('[GameCanvas] Spawning Throngling at:', x, y);
 
-      // Local admin mode: spawn straight into the game — no wallet, no signing,
-      // no backend, no daily limit. Won't persist across reloads or to others.
-      if (ADMIN_FREE_SPAWN) {
-        const newThrongling: Throngling = {
-          id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          x,
-          y,
-          vx: (Math.random() - 0.5) * THRONGLING_SPEED,
-          vy: (Math.random() - 0.5) * THRONGLING_SPEED,
-          state: 'wander',
-          isAlive: true,
-          isDragging: false,
-          bodyColor: '#F5C86A',
-          accentColor: '#FF7F2A',
-          name: name || undefined,
-          direction: 'right',
-          characterType: (characterType as Throngling['characterType']) || 'normal',
-        };
-        setThronglings(prev => [...prev, newThrongling]);
-        toast({ title: "Thronglet Spawned!", description: "Admin free spawn" });
-        return;
-      }
-
+      // Wallet is REQUIRED. Every spawn goes through the spawn-throng edge
+      // function, which enforces the free tier (5/wallet) + SOL payment and
+      // INSERTS into the shared thronglings table — so it persists across
+      // refresh and appears live for every other player via realtime.
       if (!publicKey) {
-        toast({
-          title: "Wallet Not Connected",
-          description: "Please connect your wallet to spawn",
-          variant: "destructive",
-        });
+        toast({ title: "Connect your wallet", description: "You need a wallet to spawn throngs.", variant: "destructive" });
         return;
       }
+      const walletAddr = publicKey.toString();
+      const doSpawn = () => supabase.functions.invoke('spawn-throng', {
+        body: { wallet: walletAddr, name, characterType, x, y },
+      });
 
       try {
-        // Sign the message with wallet
-        const { signMessage } = await import('@/lib/walletSignature');
-        
-        let signedMessage;
-        try {
-          signedMessage = await signMessage(wallet, 'spawn-throngling');
-        } catch (signError) {
-          toast({
-            title: "Signature Required",
-            description: signError instanceof Error && signError.message.includes('rejected') 
-              ? "You must sign the message to spawn a Thronglet"
-              : "Failed to sign message. Please try again.",
-            variant: "destructive",
-          });
-          return;
+        let { data, error } = await doSpawn();
+        const d = data as any;
+
+        // Free spawns used up -> collect 0.001 SOL, verify on-chain, then retry.
+        if (d?.error === 'payment_required') {
+          toast({ title: "5 free spawns used", description: `Approve ${d.price_sol} SOL to spawn another.` });
+          try {
+            const lamports = Math.round(d.price_sol * LAMPORTS_PER_SOL);
+            const tx = new Transaction().add(SystemProgram.transfer({
+              fromPubkey: publicKey, toPubkey: new PublicKey(d.treasury), lamports,
+            }));
+            tx.feePayer = publicKey;
+            tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+            const sig = await sendTransaction(tx, connection);
+            await connection.confirmTransaction(sig, 'confirmed');
+            const v = await supabase.functions.invoke('verify-payment', { body: { txSig: sig, wallet: walletAddr, kind: 'spawn' } });
+            if (!(v.data as any)?.success) {
+              toast({ title: "Payment not verified", description: "Give it a second and try again.", variant: "destructive" });
+              return;
+            }
+          } catch {
+            toast({ title: "Payment cancelled", variant: "destructive" });
+            return;
+          }
+          ({ data, error } = await doSpawn());
         }
 
-        const { data, error } = await supabase.functions.invoke('spawn-throngling', {
-          body: {
-            walletAddress: publicKey.toString(),
-            message: signedMessage.message,
-            signature: signedMessage.signature,
-            timestamp: signedMessage.timestamp,
-            name,
-            characterType,
-            bodyColor: '#F5C86A',
-            accentColor: '#FF7F2A',
-            usePaidSpawn: false,
-            spawnX: x,
-            spawnY: y
-          }
-        });
-
-        if (error) throw error;
-
-        if (data?.error) {
-          if (data.error === 'MAX_POPULATION_REACHED') {
-            toast({
-              title: "Maximum Thronglet Population Reached",
-              description: "The world is at maximum capacity!",
-              variant: "destructive",
-            });
-          } else if (data.error === 'NO_FREE_SPAWNS') {
-            toast({
-              title: "No Free Spawns",
-              description: `You need 10,000 $THRONG to spawn more today`,
-              variant: "destructive",
-            });
-          } else {
-            throw new Error(data.message || 'Spawn failed');
-          }
+        const r = data as any;
+        if (error || r?.error) {
+          const msg = r?.message || r?.error || 'Spawn failed';
+          toast({ title: "Spawn Failed", description: String(msg), variant: "destructive" });
           return;
         }
-
-        toast({
-          title: "Thronglet Spawned!",
-          description: data.usedFreeSpawn ? "Used a free spawn" : "Spent 10,000 $THRONG",
-        });
+        // Success — the new throng arrives for everyone (including us) via the
+        // realtime subscription, so we don't touch local state here.
+        toast({ title: "Thronglet Spawned!", description: `${r.throngling?.name || 'A new throng'} joined the island.` });
       } catch (err) {
-        console.error('Spawn error:', err);
-        toast({
-          title: "Spawn Failed",
-          description: err instanceof Error ? err.message : "Unknown error occurred",
-          variant: "destructive",
-        });
+        toast({ title: "Spawn Failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
       }
     };
 
     window.addEventListener('spawnThrongling', handleSpawnThrongling as EventListener);
     return () => window.removeEventListener('spawnThrongling', handleSpawnThrongling as EventListener);
-  }, [wallet, publicKey, toast]);
+  }, [publicKey, sendTransaction, connection]);
 
   // Helper function to create particles
   const createParticles = (type: string, x: number, y: number, count: number) => {

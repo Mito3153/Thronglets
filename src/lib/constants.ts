@@ -24,11 +24,6 @@ export const THRONG_NAMES = [
   'Jello', 'Bristle', 'Nudge', 'Koru', 'Tink', 'Gloop', 'Minty', 'Zippa', 'Snib', 'Wren',
 ];
 
-// Local dev / admin: spawn straight into the game with no wallet, no backend,
-// no daily limit. Toggled via VITE_ADMIN_FREE_SPAWN in .env. Local-only — it
-// does NOT touch or bypass the hosted Supabase backend.
-export const ADMIN_FREE_SPAWN = import.meta.env.VITE_ADMIN_FREE_SPAWN === 'true';
-
 export const HALLOWEEN_ISLAND_WIDTH = 1280; // Natural width of Halloween island asset
 export const MAP_SIZE = 768 + 500 + HALLOWEEN_ISLAND_WIDTH; // 2548
 export const SPAWN_AREA = { x: 150, y: 150, w: 468, h: 468 };

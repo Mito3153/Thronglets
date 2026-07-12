@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { SPAWN_COST, ADMIN_FREE_SPAWN } from "@/lib/constants";
+import { SPAWN_COST } from "@/lib/constants";
 
 import normalSprite from '@/assets/throngling-right.png';
 import adolfSprite from '@/assets/adolf-right.png';
@@ -86,7 +86,7 @@ export const SpawnLabDialog = ({ open, onOpenChange, onSpawn }: Props) => {
       }
     }
 
-    if (!publicKey && !ADMIN_FREE_SPAWN) {
+    if (!publicKey) {
       toast({
         title: "Wallet Not Connected",
         description: "Please connect your wallet to spawn",
@@ -109,7 +109,7 @@ export const SpawnLabDialog = ({ open, onOpenChange, onSpawn }: Props) => {
           <DialogTitle className="pixel-heading text-cyan">Spawn Lab</DialogTitle>
         </DialogHeader>
         
-        {!connected && !ADMIN_FREE_SPAWN ? (
+        {!connected ? (
           <div className="text-[10px] text-muted-foreground text-center py-8">
             Connect your wallet to spawn Thronglets
           </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Card } from '@/components/ui/card';
-import { TOOLS, ADMIN_FREE_SPAWN } from '@/lib/constants';
+import { TOOLS } from '@/lib/constants';
 import { Sparkles } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { MinimizeButton } from '@/components/MinimizeButton';
@@ -62,7 +62,7 @@ export const ActionMenu = ({ onSelectTool, selectedTool, onOpenSpawnLab }: Props
 
             <button
               onClick={onOpenSpawnLab}
-              disabled={!connected && !ADMIN_FREE_SPAWN}
+              disabled={!connected}
               className="glass-button w-full py-3 px-4 text-[11px] font-bold !bg-pink/70 hover:!bg-pink/80 text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-3"
             >
               <Sparkles className="w-4 h-4" />

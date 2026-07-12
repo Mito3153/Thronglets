@@ -10,49 +10,75 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
-      game_config: {
+      chat_messages: {
         Row: {
-          key: string
-          updated_at: string | null
-          value: Json
+          content: string
+          created_at: string
+          id: string
+          role: string
+          sender_id: string | null
+          sender_name: string | null
+          throngling_id: string
+          user_id: string | null
         }
         Insert: {
-          key: string
-          updated_at?: string | null
-          value: Json
-        }
-        Update: {
-          key?: string
-          updated_at?: string | null
-          value?: Json
-        }
-        Relationships: []
-      }
-      game_timers: {
-        Row: {
-          created_at: string | null
-          duration_ms: number
-          id: string
-          target_time: number
-          updated_at: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          duration_ms: number
-          id: string
-          target_time: number
-          updated_at?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          duration_ms?: number
+          content: string
+          created_at?: string
           id?: string
-          target_time?: number
-          updated_at?: string | null
+          role: string
+          sender_id?: string | null
+          sender_name?: string | null
+          throngling_id: string
+          user_id?: string | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          id?: string
+          role?: string
+          sender_id?: string | null
+          sender_name?: string | null
+          throngling_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_throngling_id_fkey"
+            columns: ["throngling_id"]
+            isOneToOne: false
+            referencedRelation: "thronglings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          lamports: number
+          tx_sig: string
+          wallet: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          lamports: number
+          tx_sig: string
+          wallet: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          lamports?: number
+          tx_sig?: string
+          wallet?: string
         }
         Relationships: []
       }
@@ -60,147 +86,72 @@ export type Database = {
         Row: {
           accent_color: string
           body_color: string
-          character_type: string | null
-          created_at: string | null
+          character_type: string
+          chat_lock_expires_at: string | null
+          chat_locked_by: string | null
+          created_at: string
+          current_task: string | null
+          evolution: string | null
           id: string
           is_alive: boolean
+          memory: Json
+          mood: number
           name: string | null
+          persona: Json | null
+          persona_prompt: string | null
+          relationships: Json
+          spawned_by: string | null
           state: string
-          updated_at: string | null
           vx: number
           vy: number
           x: number
           y: number
         }
         Insert: {
-          accent_color: string
-          body_color: string
-          character_type?: string | null
-          created_at?: string | null
-          id: string
-          is_alive?: boolean
-          name?: string | null
-          state: string
-          updated_at?: string | null
-          vx: number
-          vy: number
-          x: number
-          y: number
-        }
-        Update: {
           accent_color?: string
           body_color?: string
-          character_type?: string | null
-          created_at?: string | null
-          id?: string
+          character_type?: string
+          chat_lock_expires_at?: string | null
+          chat_locked_by?: string | null
+          created_at?: string
+          current_task?: string | null
+          evolution?: string | null
+          id: string
           is_alive?: boolean
+          memory?: Json
+          mood?: number
           name?: string | null
+          persona?: Json | null
+          persona_prompt?: string | null
+          relationships?: Json
+          spawned_by?: string | null
           state?: string
-          updated_at?: string | null
           vx?: number
           vy?: number
           x?: number
           y?: number
         }
-        Relationships: []
-      }
-      vip_wallets: {
-        Row: {
-          created_at: string | null
-          id: string
-          wallet_address: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          wallet_address: string
-        }
         Update: {
-          created_at?: string | null
-          id?: string
-          wallet_address?: string
-        }
-        Relationships: []
-      }
-      wallet_actions: {
-        Row: {
-          action_date: string
-          action_type: string
-          count: number
-          created_at: string | null
-          id: string
-          updated_at: string | null
-          wallet_address: string
-        }
-        Insert: {
-          action_date?: string
-          action_type: string
-          count?: number
-          created_at?: string | null
-          id?: string
-          updated_at?: string | null
-          wallet_address: string
-        }
-        Update: {
-          action_date?: string
-          action_type?: string
-          count?: number
-          created_at?: string | null
-          id?: string
-          updated_at?: string | null
-          wallet_address?: string
-        }
-        Relationships: []
-      }
-      wallet_inventory: {
-        Row: {
-          created_at: string | null
-          id: string
-          quantity: number
-          tool_id: string
-          updated_at: string | null
-          wallet_address: string
-        }
-        Insert: {
-          created_at?: string | null
-          id?: string
-          quantity?: number
-          tool_id: string
-          updated_at?: string | null
-          wallet_address: string
-        }
-        Update: {
-          created_at?: string | null
-          id?: string
-          quantity?: number
-          tool_id?: string
-          updated_at?: string | null
-          wallet_address?: string
-        }
-        Relationships: []
-      }
-      weapon_events: {
-        Row: {
-          created_at: string
-          id: string
-          wallet_address: string | null
-          weapon_type: string
-          x: number
-          y: number
-        }
-        Insert: {
+          accent_color?: string
+          body_color?: string
+          character_type?: string
+          chat_lock_expires_at?: string | null
+          chat_locked_by?: string | null
           created_at?: string
+          current_task?: string | null
+          evolution?: string | null
           id?: string
-          wallet_address?: string | null
-          weapon_type: string
-          x: number
-          y: number
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          wallet_address?: string | null
-          weapon_type?: string
+          is_alive?: boolean
+          memory?: Json
+          mood?: number
+          name?: string | null
+          persona?: Json | null
+          persona_prompt?: string | null
+          relationships?: Json
+          spawned_by?: string | null
+          state?: string
+          vx?: number
+          vy?: number
           x?: number
           y?: number
         }
@@ -211,18 +162,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      check_and_use_free_action: {
+      claim_throngling_chat: {
         Args: {
-          _action_type: string
-          _max_per_day?: number
-          _wallet_address: string
+          _claimer: string
+          _throngling_id: string
+          _ttl_seconds?: number
         }
         Returns: boolean
       }
-      cleanup_old_weapon_events: { Args: never; Returns: undefined }
-      get_throngling_count: { Args: never; Returns: number }
-      is_population_limit_reached: { Args: never; Returns: boolean }
-      is_vip_wallet: { Args: { _wallet_address: string }; Returns: boolean }
+      refresh_throngling_chat: {
+        Args: {
+          _claimer: string
+          _throngling_id: string
+          _ttl_seconds?: number
+        }
+        Returns: boolean
+      }
+      release_throngling_chat: {
+        Args: { _claimer: string; _throngling_id: string }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
