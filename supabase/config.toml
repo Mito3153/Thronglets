@@ -1,0 +1,16 @@
+project_id = "kypdyarizhofhulhbnpw"
+
+[functions.spawn-throngling]
+verify_jwt = false
+
+[functions.use-tool]
+verify_jwt = false
+
+[functions.kill-throngling]
+verify_jwt = false
+
+[functions.spawn-festival-thronglings]
+verify_jwt = false
+
+[functions.reset-game-timer]
+verify_jwt = false

@@ -1,0 +1,40 @@
+{
+  "name": "throngle-pet",
+  "version": "1.0.0",
+  "description": "Throngles that live on your desktop — grab them, fling them, spawn a swarm.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.0.2",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "jimp": "^0.22.12",
+    "png-to-ico": "^3.0.2"
+  },
+  "build": {
+    "appId": "com.throngle.pet",
+    "productName": "Throngle Pet",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "pet.js",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Throngle Pet",
+      "artifactName": "ThronglePet-Setup.exe"
+    }
+  }
+}

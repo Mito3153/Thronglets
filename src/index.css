@@ -1,0 +1,207 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    --background: 142 45% 95%;
+    --foreground: 165 40% 12%;
+
+    --card: 165 45% 18%;
+    --card-foreground: 180 100% 88%;
+
+    --popover: 165 45% 18%;
+    --popover-foreground: 180 100% 88%;
+
+    --primary: 165 50% 22%;
+    --primary-foreground: 180 100% 88%;
+
+    --secondary: 165 45% 15%;
+    --secondary-foreground: 180 100% 88%;
+
+    --muted: 165 30% 25%;
+    --muted-foreground: 180 40% 65%;
+
+    --accent: 190 100% 50%;
+    --accent-foreground: 165 50% 12%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 165 40% 30%;
+    --input: 165 40% 25%;
+    --ring: 190 100% 50%;
+
+    --radius: 1rem;
+    
+    --pink: 330 100% 65%;
+    --cyan: 190 100% 50%;
+    --game-bg: 100 40% 55%;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  .dark {
+    --background: 165 50% 15%;
+    --foreground: 180 100% 88%;
+
+    --card: 165 45% 18%;
+    --card-foreground: 180 100% 88%;
+
+    --popover: 165 45% 18%;
+    --popover-foreground: 180 100% 88%;
+
+    --primary: 165 50% 22%;
+    --primary-foreground: 180 100% 88%;
+
+    --secondary: 165 45% 15%;
+    --secondary-foreground: 180 100% 88%;
+
+    --muted: 165 30% 25%;
+    --muted-foreground: 180 40% 65%;
+
+    --accent: 190 100% 50%;
+    --accent-foreground: 165 50% 12%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 165 40% 30%;
+    --input: 165 40% 25%;
+    --ring: 190 100% 50%;
+  }
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground overflow-hidden;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 12px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+  
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+  }
+  
+  /* Wallet adapter overrides */
+  .wallet-adapter-button {
+    background: rgba(255, 105, 180, 0.7) !important;
+    backdrop-filter: blur(8px) !important;
+    border: 1px solid rgba(255, 105, 180, 0.3) !important;
+    border-radius: 0.75rem !important;
+    box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.25) !important;
+    transition: all 0.3s ease !important;
+    color: white !important;
+    font-family: 'Press Start 2P', monospace !important;
+    font-size: 10px !important;
+    height: auto !important;
+    padding: 12px 16px !important;
+  }
+  
+  .wallet-adapter-button:hover {
+    background: rgba(255, 105, 180, 0.85) !important;
+    border-color: rgba(255, 105, 180, 0.5) !important;
+    box-shadow: 0 6px 20px 0 rgba(0, 0, 0, 0.35) !important;
+    transform: translateY(-1px) !important;
+  }
+  
+  .wallet-adapter-button-trigger {
+    background: rgba(255, 105, 180, 0.7) !important;
+  }
+  
+  .wallet-adapter-modal-wrapper {
+    background: rgba(10, 20, 18, 0.95) !important;
+    backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(100, 255, 218, 0.1) !important;
+    border-radius: 1rem !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37) !important;
+  }
+  
+  .wallet-adapter-modal-title {
+    font-family: 'Press Start 2P', monospace !important;
+    color: hsl(var(--cyan)) !important;
+  }
+}
+
+@layer utilities {
+  .pixel-text {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 10px;
+    line-height: 1.6;
+  }
+  
+  .pixel-heading {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  
+  /* Liquid Glass Effects */
+  .glass-panel {
+    background: rgba(22, 50, 44, 0.7);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(100, 255, 218, 0.1);
+    border-radius: 1rem;
+    box-shadow: 
+      0 8px 32px 0 rgba(0, 0, 0, 0.37),
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+  }
+  
+  .glass-inset {
+    background: rgba(15, 35, 30, 0.8);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(100, 255, 218, 0.08);
+    border-radius: 0.75rem;
+    box-shadow: inset 0 2px 8px 0 rgba(0, 0, 0, 0.3);
+  }
+  
+  .glass-button {
+    background: rgba(22, 50, 44, 0.6);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(100, 255, 218, 0.15);
+    border-radius: 0.75rem;
+    box-shadow: 0 4px 16px 0 rgba(0, 0, 0, 0.25);
+    transition: all 0.3s ease;
+  }
+  
+  .glass-button:hover {
+    background: rgba(22, 50, 44, 0.8);
+    border-color: rgba(100, 255, 218, 0.25);
+    box-shadow: 0 6px 20px 0 rgba(0, 0, 0, 0.35);
+    transform: translateY(-1px);
+  }
+  
+  .glass-button:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.25);
+  }
+}
