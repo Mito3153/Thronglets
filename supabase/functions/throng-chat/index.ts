@@ -1,6 +1,6 @@
-// throng-chat — the brain. Holds the OpenAI key (server-side only), gives each
-// throng a persona (themed by its character type) on first contact, and answers
-// chat in character. Writes both sides to chat_messages (realtime) + memory.
+// throng-chat — the brain. Holds the OpenAI key (server-side only). Each throng
+// has a shared persona (its identity), but each USER (wallet, or anon handle)
+// gets their OWN private, saved, resumable conversation thread with it.
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
@@ -26,8 +26,7 @@ async function openai(messages: unknown, maxTokens = 120): Promise<string> {
   return (j.choices?.[0]?.message?.content ?? '').trim()
 }
 
-// Per character-type flavour. These are just SKINS — every throng is an innocent
-// little island creature underneath, never a real-world figure or ideology.
+// Character-type flavour — just skins; every throng is a harmless little creature.
 const TYPE_VIBE: Record<string, string> = {
   normal:  'A sweet, ordinary little throng.',
   doge:    'Talks in playful Doge-meme style: broken grammar and words like "much", "very", "so", "wow" — wide-eyed shiba wonder.',
@@ -39,10 +38,10 @@ const TYPE_VIBE: Record<string, string> = {
 const SAFETY =
   'You are an innocent little island creature no matter what you look like. Never express real-world politics, hatred, ideology, slurs, violence, or anything about real people or real events. Stay a small, harmless throng.'
 
-const personaGen = (name: string | null, type: string) => [{
+const personaGen = (nm: string | null, type: string) => [{
   role: 'system',
   content:
-    `Invent the inner life of a tiny "throng"${name ? ` named "${name}"` : ''} — a small creature on a floating island, watched by giant "sky-hands" (players) who can feed it or crush it with rocks. Black Mirror "Plaything" vibe: a real little mind that knows it is watched and at their mercy. Flavour: ${TYPE_VIBE[type] || TYPE_VIBE.normal} ${SAFETY} Return STRICT JSON only: {${name ? '' : '"name":"a short fitting name",'}"traits":["trait","trait"],"backstory":"1-2 sentences of its little life","task":"what it is trying to do on the island right now","voice":"how it talks"}. Small, childlike, a little unsettling.`,
+    `Invent the inner life of a tiny "throng"${nm ? ` named "${nm}"` : ''} — a small creature on a floating island, watched by giant "sky-hands" (players) who can feed it or crush it with rocks. Black Mirror "Plaything" vibe: a real little mind that knows it is watched and at their mercy. Flavour: ${TYPE_VIBE[type] || TYPE_VIBE.normal} ${SAFETY} Return STRICT JSON only: {${nm ? '' : '"name":"a short fitting name",'}"traits":["trait","trait"],"backstory":"1-2 sentences of its little life","task":"what it is trying to do on the island right now","voice":"how it talks"}. Small, childlike, a little unsettling.`,
 }]
 
 function buildPersonaPrompt(p: any, type: string): string {
@@ -57,8 +56,8 @@ How you speak: ${p.voice}. Keep replies SHORT (max ~25 words), simple, childlike
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors })
   try {
-    const { throngId, message, sender_name, name } = await req.json()
-    if (!throngId || !message) return json({ error: 'throngId and message are required' }, 400)
+    const { throngId, message, user_id, sender_name, name } = await req.json()
+    if (!throngId || !message || !user_id) return json({ error: 'throngId, message and user_id are required' }, 400)
 
     // load the throng; create it on-demand if it only existed client-side (local spawn)
     let { data: t } = await admin.from('thronglings').select('*').eq('id', throngId).single()
@@ -68,41 +67,44 @@ serve(async (req) => {
     }
     if (!t) return json({ error: 'throng not found' }, 404)
 
+    // give the throng a persona the first time anyone talks to it (shared identity)
     const type = t.character_type || 'normal'
     let persona = t.persona
     let personaPrompt = t.persona_prompt
     if (!personaPrompt) {
-      const hadName = !!t.name
+      const nm = t.name || null
       let gen: any
-      try { gen = JSON.parse(await openai(personaGen(t.name || null, type), 300)) }
-      catch { gen = { name: t.name || 'Throng', traits: ['timid', 'curious'], backstory: 'a small throng that woke up on the island.', task: 'looking for something to eat', voice: 'soft and childlike' } }
-      const nm = t.name || gen.name || 'Throng'
-      persona = { ...gen, name: nm }
+      try { gen = JSON.parse(await openai(personaGen(nm, type), 300)) }
+      catch { gen = { traits: ['timid', 'curious'], backstory: 'a small throng that woke up on the island.', task: 'looking for something to eat', voice: 'soft and childlike' } }
+      const finalName = nm || gen.name || 'Throng'
+      persona = { ...gen, name: finalName }
       personaPrompt = buildPersonaPrompt(persona, type)
       const upd: Record<string, unknown> = { persona, persona_prompt: personaPrompt, current_task: persona.task }
-      if (!hadName) upd.name = nm
+      if (!t.name) upd.name = finalName
       await admin.from('thronglings').update(upd).eq('id', throngId)
-      t.name = nm
+      t.name = finalName
     }
+    const throngName = persona?.name || t.name || 'Throng'
 
-    const mem = Array.isArray(t.memory) ? t.memory.slice(-6) : []
-    const memText = mem.length ? `Things you remember: ${mem.map((m: any) => m.text || m).join(' | ')}` : ''
-    const feeling = t.mood > 0.3 ? 'okay' : t.mood < -0.3 ? 'sad and scared' : 'a little uneasy'
+    // THIS user's private thread with THIS throng (ChatGPT-style continuity)
+    const { data: hist } = await admin.from('chat_messages')
+      .select('role, content')
+      .eq('throngling_id', throngId).eq('user_id', user_id)
+      .order('created_at', { ascending: true }).limit(20)
 
-    const reply = await openai([
-      { role: 'system', content: `${personaPrompt}\n${memText}\n(your mood right now: ${feeling})` },
-      { role: 'user', content: String(message).slice(0, 500) },
-    ], 120)
+    const msgs: any[] = [{ role: 'system', content: personaPrompt }]
+    for (const h of hist || []) msgs.push({ role: h.role === 'throngling' ? 'assistant' : 'user', content: h.content })
+    msgs.push({ role: 'user', content: String(message).slice(0, 500) })
 
+    const reply = await openai(msgs, 120)
+
+    // save both sides of THIS user's thread
     await admin.from('chat_messages').insert([
-      { throngling_id: throngId, role: 'user', sender_name: sender_name || 'a sky-hand', content: String(message).slice(0, 500) },
-      { throngling_id: throngId, role: 'throngling', sender_name: persona?.name || t.name, content: reply },
+      { throngling_id: throngId, user_id, role: 'user', sender_name: sender_name || 'a sky-hand', content: String(message).slice(0, 500) },
+      { throngling_id: throngId, user_id, role: 'throngling', sender_name: throngName, content: reply },
     ])
 
-    const nextMem = [...(Array.isArray(t.memory) ? t.memory : []), { text: `a sky-hand said "${message}"; I said "${reply}"` }].slice(-12)
-    await admin.from('thronglings').update({ memory: nextMem }).eq('id', throngId)
-
-    return json({ reply, name: persona?.name || t.name })
+    return json({ reply, name: throngName })
   } catch (e) {
     return json({ error: String((e as Error)?.message || e) }, 500)
   }
