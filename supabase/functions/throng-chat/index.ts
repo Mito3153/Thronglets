@@ -62,6 +62,18 @@ serve(async (req) => {
     const { throngId, message, user_id, sender_name, name } = await req.json()
     if (!throngId || !message) return json({ error: 'throngId and message are required' }, 400)
 
+    // rate limit talking — protects the OpenAI bill + the shared feed from spam.
+    // Max messages/min per user; over that we answer without calling the model or saving.
+    const RATE_PER_MIN = 12
+    if (user_id) {
+      const since = new Date(Date.now() - 60_000).toISOString()
+      const { count } = await admin.from('chat_messages').select('*', { count: 'exact', head: true })
+        .eq('user_id', user_id).eq('role', 'user').gte('created_at', since)
+      if (count && count >= RATE_PER_MIN) {
+        return json({ reply: 'the little ones are tired... give them a moment 🥱', rateLimited: true })
+      }
+    }
+
     let { data: t } = await admin.from('thronglings').select('*').eq('id', throngId).single()
     if (!t) {
       const ins = await admin.from('thronglings').insert({ id: throngId, name: name || null }).select('*').single()

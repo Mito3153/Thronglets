@@ -57,11 +57,15 @@ export const ThrongChat = ({ throng, onClose }: Props) => {
     const { data, error } = await supabase.functions.invoke('throng-chat', {
       body: { throngId: throng.id, message: text, user_id: userId, sender_name: senderName, name: throng.name },
     });
-    if (error || (data as any)?.error) {
+    const d = data as any;
+    if (error || d?.error) {
       setSending(false);
       setMessages((prev) => [...prev, { id: 'e-' + Date.now(), role: 'throngling', content: '…(it went quiet)', sender_name: throng.name, user_id: null }]);
+    } else if (d?.rateLimited) {
+      setSending(false);
+      setMessages((prev) => [...prev, { id: 'rl-' + Date.now(), role: 'throngling', content: d.reply, sender_name: throng.name, user_id: null }]);
     }
-    // reply arrives via realtime; sending clears when it lands
+    // otherwise the reply arrives via realtime; sending clears when it lands
   };
 
   return (
