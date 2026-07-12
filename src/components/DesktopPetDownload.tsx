@@ -4,8 +4,7 @@ import { Download } from 'lucide-react';
 export const DesktopPetDownload = () => {
   return (
     <a
-      href="/ThronglePet.zip"
-      download
+      href="https://github.com/Mito3153/Thronglets/releases/download/desktop-pet-v1/ThronglePet.zip"
       className="glass-panel rounded-xl px-4 py-3 flex items-center gap-3 hover:bg-black/40 transition-colors no-underline"
     >
       <Download className="w-6 h-6 text-cyan shrink-0" />
