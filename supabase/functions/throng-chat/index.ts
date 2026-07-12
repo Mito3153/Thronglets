@@ -74,6 +74,18 @@ serve(async (req) => {
       }
     }
 
+    // paid model: 10 free messages per wallet (lifetime), then 0.001 SOL buys 10 more
+    if (user_id) {
+      const [{ count: used }, { count: paid }] = await Promise.all([
+        admin.from('chat_messages').select('*', { count: 'exact', head: true }).eq('user_id', user_id).eq('role', 'user'),
+        admin.from('payments').select('*', { count: 'exact', head: true }).eq('wallet', user_id).eq('kind', 'chat'),
+      ])
+      const allowance = 10 + (paid || 0) * 10
+      if ((used || 0) >= allowance) {
+        return json({ error: 'payment_required', kind: 'chat', price_sol: 0.001, credits: 10, treasury: '3zNLW78QNU8SZdH2R3UmMNvSNhA3aNVVzkjVihNxXKUC' })
+      }
+    }
+
     let { data: t } = await admin.from('thronglings').select('*').eq('id', throngId).single()
     if (!t) {
       const ins = await admin.from('thronglings').insert({ id: throngId, name: name || null }).select('*').single()

@@ -12,8 +12,13 @@ interface Props {
 }
 
 export const WalletProvider: FC<Props> = ({ children }) => {
-  const network = WalletAdapterNetwork.Devnet;
-  const endpoint = useMemo(() => clusterApiUrl(network), [network]);
+  // Mainnet — payments are real SOL. Override the RPC with VITE_SOLANA_RPC_URL
+  // (e.g. a Helius URL) for reliability; falls back to the public mainnet RPC.
+  const network = WalletAdapterNetwork.Mainnet;
+  const endpoint = useMemo(
+    () => import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl(network),
+    [network]
+  );
   
   const wallets = useMemo(
     () => [
