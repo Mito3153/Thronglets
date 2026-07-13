@@ -12,7 +12,7 @@ export const TokenPanel = () => {
 
   return (
     <Collapsible open={!isMinimized} onOpenChange={() => setIsMinimized(!isMinimized)}>
-      <Card className="absolute top-4 left-4 w-80 glass-panel p-4 space-y-3">
+      <Card className="w-full glass-panel p-4 space-y-3">
         <div className="flex items-center justify-between">
           <h2 className="pixel-heading text-cyan">DASHBOARD</h2>
           <CollapsibleTrigger asChild>

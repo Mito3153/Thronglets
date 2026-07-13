@@ -1095,12 +1095,15 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   // Reset camera handler
   useEffect(() => {
     const handleReset = () => {
+      // recenter on the first island (the home meadow)
+      const cx = 384 - window.innerWidth / 2;
+      const cy = 384 - window.innerHeight / 2;
       setCamera({
-        x: 0,
-        y: 0,
+        x: cx,
+        y: cy,
         zoom: 1,
-        targetX: 0,
-        targetY: 0,
+        targetX: cx,
+        targetY: cy,
         velocityX: 0,
         velocityY: 0,
       });
@@ -1585,14 +1588,15 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
 
     resize();
     
-    // Center map perfectly on desktop on first load
-    if (window.innerWidth >= 768) {
-      const centerX = MAP_SIZE / 2 - window.innerWidth / 2;
-      const centerY = 768 / 2 - window.innerHeight / 2;
+    // Open focused on the FIRST island (the green meadow at x0-768), not the
+    // middle gap between the two islands.
+    {
+      const firstIslandCenterX = 384; // first island spans x 0-768
+      const firstIslandCenterY = 384; // and y 0-768
       setCamera(prev => ({
         ...prev,
-        x: centerX,
-        y: centerY,
+        x: firstIslandCenterX - window.innerWidth / 2,
+        y: firstIslandCenterY - window.innerHeight / 2,
       }));
     }
 

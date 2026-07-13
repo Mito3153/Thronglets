@@ -121,15 +121,14 @@ const Index = () => {
         />
         
         <PageTitle />
-        <TokenPanel />
-        <div className="absolute left-4 w-80" style={{ top: '460px' }}>
-          <GrowthBadge />
-        </div>
-        <div className="absolute left-4 w-80" style={{ top: '540px' }}>
-          <CustomDesignBadge />
-        </div>
-        <div className="absolute left-4 w-80" style={{ top: '620px' }}>
-          <DesktopPetDownload />
+        {/* Left column: flows top-to-bottom so panels never overlap regardless
+            of the TokenPanel's height. pointer-events-none on the column lets
+            clicks in the gaps fall through to the canvas. */}
+        <div className="absolute top-4 left-4 w-80 flex flex-col gap-3 pointer-events-none z-10">
+          <div className="pointer-events-auto"><TokenPanel /></div>
+          <div className="pointer-events-auto"><GrowthBadge /></div>
+          <div className="pointer-events-auto"><CustomDesignBadge /></div>
+          <div className="pointer-events-auto"><DesktopPetDownload /></div>
         </div>
         <TopControls thronglingCount={thronglingCount} />
         <ActionMenu 

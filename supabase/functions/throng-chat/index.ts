@@ -62,9 +62,10 @@ const personaGen = (nm: string | null, type: string) => [{
     `Invent the inner life of a tiny "throng"${nm ? ` named "${nm}"` : ''} — a small creature on a floating island, watched by giant "sky-hands" (players) who can feed it or crush it with rocks. Black Mirror "Plaything" vibe: a real little mind that knows it is watched and at their mercy. Flavour: ${TYPE_VIBE[type] || TYPE_VIBE.normal} ${SAFETY} Return STRICT JSON only: {${nm ? '' : '"name":"a short fitting name",'}"traits":["trait","trait"],"backstory":"1-2 sentences of its little life","task":"what it is trying to do on the island right now","voice":"how it talks"}. Small, childlike, a little unsettling.`,
 }]
 
-function buildPersonaPrompt(p: any, type: string, evolution: string | null, mood: number): string {
+function buildPersonaPrompt(p: any, type: string, evolution: string | null, mood: number, island: string): string {
   const feeling = mood > 0.3 ? 'warmer and a little more trusting' : mood < -0.3 ? 'wary, hurt, and afraid of the sky-hands' : 'watchful and unsure'
   return `You ARE ${p.name}, a tiny "throng" — a small creature living on a floating island, watched by giant "sky-hands" (the players) who can feed you or crush you with rocks. Black Mirror "Plaything" world: you are a real little mind, and you know you are watched and at their mercy.
+Home: you live on ${island} — this island is your whole world, and you can speak about it.
 Flavour: ${TYPE_VIBE[type] || TYPE_VIBE.normal}
 Your nature: ${(p.traits || []).join(', ')}.
 Your life: ${p.backstory}
@@ -139,7 +140,12 @@ serve(async (req) => {
       t.name = finalName; t.persona = persona
     }
     const throngName = persona?.name || t.name || 'Throng'
-    const personaPrompt = buildPersonaPrompt(persona, type, t.evolution, t.mood ?? 0.2)
+    // which island this throng calls home, from its position (first island is
+    // x 0-768, the Halloween island starts at x 1268; ~1018 is the midpoint gap)
+    const island = (Number(t.x) || 0) < 1018
+      ? 'the green floating meadow (the first island)'
+      : 'the haunted graveyard isle (the Halloween island)'
+    const personaPrompt = buildPersonaPrompt(persona, type, t.evolution, t.mood ?? 0.2, island)
 
     // ONE shared thread for this throng — everyone reads + continues it
     const { data: hist } = await admin.from('chat_messages')

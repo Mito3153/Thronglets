@@ -29,7 +29,7 @@ export const ActionMenu = ({ onSelectTool, selectedTool, onOpenSpawnLab }: Props
           <CollapsibleContent>
             <div className="text-[10px] mt-1">
               {connected ? (
-                <span className="text-cyan">Wallet Connected</span>
+                <span className="text-cyan">Connected · 1 free tool, then 0.002 SOL each</span>
               ) : (
                 <span className="text-muted-foreground">Connect your wallet to use tools.</span>
               )}
@@ -53,7 +53,7 @@ export const ActionMenu = ({ onSelectTool, selectedTool, onOpenSpawnLab }: Props
                       <span>{tool.name}</span>
                     </span>
                     <span className="text-cyan text-[11px] font-bold">
-                      1 free use per day
+                      {tool.id === 'snack' ? 'soon' : '0.002 SOL'}
                     </span>
                   </div>
                 </button>
