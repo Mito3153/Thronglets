@@ -3,6 +3,7 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { supabase } from '@/integrations/supabase/client';
+import { getOwnershipProof } from '@/lib/ownershipProof';
 import { X, Send } from 'lucide-react';
 
 interface Msg { id: string; role: 'user' | 'throngling'; content: string; sender_name: string | null; user_id: string | null; pending?: boolean; }
@@ -11,7 +12,8 @@ interface Props { throng: { id: string; name: string }; onClose: () => void; }
 
 export const ThrongChat = ({ throng, onClose }: Props) => {
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const wallet = useWallet();
+  const { publicKey, sendTransaction } = wallet;
   const userId = publicKey ? publicKey.toString() : null;
   const senderName = publicKey ? publicKey.toString().slice(0, 4) + '…' + publicKey.toString().slice(-4) : '';
 
@@ -52,9 +54,16 @@ export const ThrongChat = ({ throng, onClose }: Props) => {
   const sendText = async (text: string) => {
     if (!text || sending || !publicKey) return;
     setSending(true);
+    let proof;
+    try {
+      proof = await getOwnershipProof(wallet);
+    } catch {
+      setSending(false);
+      return;
+    }
     setMessages((prev) => [...prev, { id: 'temp-' + Date.now(), role: 'user', content: text, sender_name: senderName, user_id: userId, pending: true }]);
     const { data, error } = await supabase.functions.invoke('throng-chat', {
-      body: { throngId: throng.id, message: text, user_id: userId, sender_name: senderName, name: throng.name },
+      body: { throngId: throng.id, message: text, user_id: userId, ownerMsg: proof.ownerMsg, ownerSig: proof.ownerSig, sender_name: senderName, name: throng.name },
     });
     const d = data as any;
     if (d?.error === 'payment_required') {

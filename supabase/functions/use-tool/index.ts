@@ -1,159 +1,66 @@
+// use-tool — gates island tools. Wallet REQUIRED. Free tier is 1 tool per
+// wallet (lifetime); after that each tool use costs 0.002 SOL (paid via the
+// verify-payment flow, kind:'tool'). Every granted use is recorded in
+// tool_uses so the per-wallet count is server-authoritative (no client bypass).
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts'
-import { verifyWalletSignature } from '../_shared/verifyWalletSignature.ts'
+import { PublicKey } from 'https://esm.sh/@solana/web3.js@1.98.4'
+import nacl from 'https://esm.sh/tweetnacl@1.0.3'
 
-const corsHeaders = {
+// wallet-ownership proof: caller signed a message containing their wallet; verify
+// the ed25519 signature so the per-wallet free tier can't be farmed with strings.
+function verifyOwnership(wallet: string, message: string, signatureB64: string): boolean {
+  try {
+    if (!wallet || !message || !signatureB64) return false
+    if (!message.includes(wallet)) return false
+    const pk = new PublicKey(wallet)
+    const bin = atob(signatureB64)
+    const sig = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) sig[i] = bin.charCodeAt(i)
+    return nacl.sign.detached.verify(new TextEncoder().encode(message), sig, pk.toBytes())
+  } catch {
+    return false
+  }
+}
+
+const cors = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+const json = (obj: unknown, status = 200) =>
+  new Response(JSON.stringify(obj), { status, headers: { ...cors, 'Content-Type': 'application/json' } })
 
-const TOOL_CONFIG: Record<string, { freeCount: number; paidCost: number }> = {
-  rock: { freeCount: 1, paidCost: 50000 },
-  lightning: { freeCount: 1, paidCost: 50000 },
-  tornado: { freeCount: 1, paidCost: 50000 },
-  fire: { freeCount: 1, paidCost: 50000 },
-  snack: { freeCount: 1, paidCost: 20000 },
-  festival: { freeCount: 1, paidCost: 200000 }
-}
-
-const HALLOWEEN_ISLAND_WIDTH = 1280
-const MAP_SIZE = 768 + 500 + HALLOWEEN_ISLAND_WIDTH // 2548 (first island + gap + Halloween island)
-
-const useToolSchema = z.object({
-  walletAddress: z.string().min(32).max(44),
-  message: z.string(),
-  signature: z.string(),
-  timestamp: z.number(),
-  toolId: z.enum(['rock', 'lightning', 'tornado', 'fire', 'snack', 'festival']),
-  x: z.number().min(0).max(MAP_SIZE),
-  y: z.number().min(0).max(MAP_SIZE),
-  usePaidUse: z.boolean().optional()
-})
+const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '')
+const TREASURY = '3zNLW78QNU8SZdH2R3UmMNvSNhA3aNVVzkjVihNxXKUC'
+const FREE_TOOLS = 1
+const ALLOWED_TOOLS = ['rock', 'lightning', 'tornado', 'fire', 'snack', 'festival']
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders })
-  }
-
+  if (req.method === 'OPTIONS') return new Response(null, { headers: cors })
   try {
-    const supabaseAdmin = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-    )
+    const { wallet, ownerMsg, ownerSig, toolId } = await req.json()
+    if (!wallet) return json({ error: 'wallet_required' }, 401)
+    if (!verifyOwnership(wallet, ownerMsg, ownerSig)) return json({ error: 'ownership_unverified' }, 401)
+    if (!ALLOWED_TOOLS.includes(toolId)) return json({ error: 'invalid_tool' }, 400)
 
-    const body = await req.json()
-    
-    // Validate input
-    const validation = useToolSchema.safeParse(body)
-    if (!validation.success) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'Invalid input', 
-          details: validation.error.issues.map(i => `${i.path.join('.')}: ${i.message}`)
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
+    // snack is a coming-soon no-op — never counts against the free tool or charges
+    if (toolId === 'snack') return json({ success: true, free: true })
+
+    // free tier: 1 tool per wallet (lifetime), then 0.002 SOL buys 1 more each
+    const [{ count: used }, { count: paid }] = await Promise.all([
+      admin.from('tool_uses').select('*', { count: 'exact', head: true }).eq('wallet', wallet),
+      admin.from('payments').select('*', { count: 'exact', head: true }).eq('wallet', wallet).eq('kind', 'tool'),
+    ])
+    const allowance = FREE_TOOLS + (paid || 0)
+    if ((used || 0) >= allowance) {
+      return json({ error: 'payment_required', kind: 'tool', price_sol: 0.002, credits: 1, treasury: TREASURY })
     }
 
-    const { walletAddress, message, signature, timestamp, toolId, x, y, usePaidUse } = validation.data
-
-    console.log('Tool use request:', { walletAddress, toolId, x, y, usePaidUse })
-
-    // Verify wallet signature
-    const verification = await verifyWalletSignature(walletAddress, message, signature, timestamp)
-    
-    if (!verification.valid) {
-      console.error('Signature verification failed:', verification.error)
-      return new Response(
-        JSON.stringify({ 
-          error: 'SIGNATURE_INVALID', 
-          message: verification.error || 'Invalid wallet signature'
-        }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    console.log('Signature verified for wallet:', walletAddress)
-
-    const config = TOOL_CONFIG[toolId]
-
-    // Check if wallet is VIP (infinite uses)
-    const { data: isVIP, error: vipError } = await supabaseAdmin.rpc('is_vip_wallet', {
-      _wallet_address: walletAddress
-    })
-
-    if (vipError) {
-      console.error('Error checking VIP status:', vipError)
-    }
-
-    // VIP wallets get infinite uses
-    if (isVIP) {
-      console.log('VIP wallet detected - bypassing limits')
-      return new Response(
-        JSON.stringify({ 
-          success: true, 
-          toolId, 
-          x, 
-          y, 
-          usedFreeUse: false,
-          cost: 0,
-          vip: true
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Check if free use available
-    const { data: hasFreeUse, error: freeUseError } = await supabaseAdmin.rpc('check_and_use_free_action', {
-      _wallet_address: walletAddress,
-      _action_type: toolId,
-      _max_per_day: config.freeCount
-    })
-
-    if (freeUseError) {
-      console.error('Error checking free use:', freeUseError)
-      throw freeUseError
-    }
-
-    console.log('Has free use:', hasFreeUse)
-
-    if (!hasFreeUse && !usePaidUse) {
-      return new Response(
-        JSON.stringify({ 
-          error: 'NO_FREE_USES', 
-          message: `No free ${toolId} uses remaining. Use ${config.paidCost.toLocaleString()} $THRONG.`,
-          requiredCost: config.paidCost
-        }),
-        { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      )
-    }
-
-    if (!hasFreeUse && usePaidUse) {
-      // TODO: Verify $THRONG token payment
-      console.log(`Paid ${toolId} use - will verify ${config.paidCost} $THRONG payment in future`)
-    }
-
-    console.log('Tool use approved')
-
-    return new Response(
-      JSON.stringify({ 
-        success: true, 
-        toolId, 
-        x, 
-        y, 
-        usedFreeUse: hasFreeUse,
-        cost: hasFreeUse ? 0 : config.paidCost
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
-
-  } catch (error) {
-    console.error('Tool use error:', error)
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
-    return new Response(
-      JSON.stringify({ error: errorMessage }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    )
+    // record the granted use so the count can't be replayed client-side
+    const { error } = await admin.from('tool_uses').insert({ wallet, tool_id: toolId })
+    if (error) throw error
+    return json({ success: true, remaining_free: Math.max(0, allowance - (used || 0) - 1) })
+  } catch (e) {
+    return json({ error: String((e as Error)?.message || e) }, 500)
   }
 })

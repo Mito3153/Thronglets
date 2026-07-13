@@ -63,6 +63,12 @@ serve(async (req) => {
     const received = Number(tx.meta.postBalances[tIdx]) - Number(tx.meta.preBalances[tIdx])
     if (received < price) return json({ error: 'insufficient_amount', needLamports: price, gotLamports: received }, 400)
 
+    // the CLAIMING wallet must be the account that actually FUNDED the transfer
+    // (its own balance dropped by >= price), not merely a co-signer riding on a
+    // transfer someone else paid for.
+    const debited = Number(tx.meta.preBalances[wIdx]) - Number(tx.meta.postBalances[wIdx])
+    if (debited < price) return json({ error: 'payer_not_funder', message: 'this wallet did not fund the payment' }, 400)
+
     const { error: insErr } = await admin.from('payments').insert({ tx_sig: txSig, wallet, kind, lamports: received })
     if (insErr) {
       if (String(insErr.message).includes('duplicate')) return json({ success: true, kind, credits: CREDITS[kind], already: true })

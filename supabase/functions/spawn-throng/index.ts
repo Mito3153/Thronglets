@@ -3,6 +3,24 @@
 // so every player sees it live and it survives refresh.
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { PublicKey } from 'https://esm.sh/@solana/web3.js@1.98.4'
+import nacl from 'https://esm.sh/tweetnacl@1.0.3'
+
+// wallet-ownership proof: caller signed a message containing their wallet; verify
+// the ed25519 signature so the per-wallet free tier can't be farmed with strings.
+function verifyOwnership(wallet: string, message: string, signatureB64: string): boolean {
+  try {
+    if (!wallet || !message || !signatureB64) return false
+    if (!message.includes(wallet)) return false
+    const pk = new PublicKey(wallet)
+    const bin = atob(signatureB64)
+    const sig = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) sig[i] = bin.charCodeAt(i)
+    return nacl.sign.detached.verify(new TextEncoder().encode(message), sig, pk.toBytes())
+  } catch {
+    return false
+  }
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -20,8 +38,9 @@ const ALLOWED_TYPES = ['normal', 'adolf', 'doge', 'george', 'epstein', 'pepe']
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors })
   try {
-    const { wallet, name, characterType, x, y } = await req.json()
+    const { wallet, ownerMsg, ownerSig, name, characterType, x, y } = await req.json()
     if (!wallet) return json({ error: 'wallet_required' }, 401)
+    if (!verifyOwnership(wallet, ownerMsg, ownerSig)) return json({ error: 'ownership_unverified' }, 401)
     if (typeof x !== 'number' || typeof y !== 'number') return json({ error: 'x and y are required' }, 400)
 
     // population cap

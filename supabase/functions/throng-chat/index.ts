@@ -3,6 +3,24 @@
 // and its personality DRIFTS over time based on how the crowd treats it.
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { PublicKey } from 'https://esm.sh/@solana/web3.js@1.98.4'
+import nacl from 'https://esm.sh/tweetnacl@1.0.3'
+
+// wallet-ownership proof: caller signed a message containing their wallet; verify
+// the ed25519 signature so the per-wallet free tier can't be farmed with strings.
+function verifyOwnership(wallet: string, message: string, signatureB64: string): boolean {
+  try {
+    if (!wallet || !message || !signatureB64) return false
+    if (!message.includes(wallet)) return false
+    const pk = new PublicKey(wallet)
+    const bin = atob(signatureB64)
+    const sig = new Uint8Array(bin.length)
+    for (let i = 0; i < bin.length; i++) sig[i] = bin.charCodeAt(i)
+    return nacl.sign.detached.verify(new TextEncoder().encode(message), sig, pk.toBytes())
+  } catch {
+    return false
+  }
+}
 
 const cors = {
   'Access-Control-Allow-Origin': '*',
@@ -59,13 +77,26 @@ How you speak: ${p.voice}. Keep replies SHORT (max ~25 words), simple, childlike
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: cors })
   try {
-    const { throngId, message, user_id, sender_name, name } = await req.json()
+    const { throngId, message, user_id, ownerMsg, ownerSig, sender_name, name } = await req.json()
     if (!throngId || !message) return json({ error: 'throngId and message are required' }, 400)
+    // wallet REQUIRED + proven — no anonymous/omitted-wallet path (that would let
+    // anyone drain the OpenAI bill for free by leaving the wallet out).
+    if (!user_id) return json({ error: 'wallet_required' }, 401)
+    if (!verifyOwnership(user_id, ownerMsg, ownerSig)) return json({ error: 'ownership_unverified' }, 401)
 
-    // rate limit talking — protects the OpenAI bill + the shared feed from spam.
-    // Max messages/min per user; over that we answer without calling the model or saving.
+    // global backstop: cap total model replies per hour, so a keypair-farming
+    // attacker can't run up the OpenAI bill even with many fresh wallets.
+    const GLOBAL_REPLIES_PER_HOUR = 800
+    const sinceHour = new Date(Date.now() - 3_600_000).toISOString()
+    const { count: globalReplies } = await admin.from('chat_messages').select('*', { count: 'exact', head: true })
+      .eq('role', 'throngling').gte('created_at', sinceHour)
+    if ((globalReplies || 0) >= GLOBAL_REPLIES_PER_HOUR) {
+      return json({ reply: 'the throngs are resting — too many little voices at once. come back soon 😴', rateLimited: true })
+    }
+
+    // per-wallet rate limit — protects the shared feed from spam
     const RATE_PER_MIN = 12
-    if (user_id) {
+    {
       const since = new Date(Date.now() - 60_000).toISOString()
       const { count } = await admin.from('chat_messages').select('*', { count: 'exact', head: true })
         .eq('user_id', user_id).eq('role', 'user').gte('created_at', since)
@@ -75,7 +106,7 @@ serve(async (req) => {
     }
 
     // paid model: 10 free messages per wallet (lifetime), then 0.001 SOL buys 10 more
-    if (user_id) {
+    {
       const [{ count: used }, { count: paid }] = await Promise.all([
         admin.from('chat_messages').select('*', { count: 'exact', head: true }).eq('user_id', user_id).eq('role', 'user'),
         admin.from('payments').select('*', { count: 'exact', head: true }).eq('wallet', user_id).eq('kind', 'chat'),

@@ -5,6 +5,7 @@ import { Throngling, Camera, GameEvent, WeaponEffect, DeathAnimation, Particle, 
 import { MAP_SIZE, SPAWN_AREA, SPAWN_AREA_SECOND, ISLAND_POSITIONS, HALLOWEEN_ISLAND_WIDTH, THRONGLING_SPEED, WEAPON_CONFIG, DEATH_ANIMATION_DURATION, BLOOD_SPLASH_DURATION, MAX_POPULATION, THRONG_NAMES } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { getOwnershipProof } from '@/lib/ownershipProof';
 import { useAudio } from '@/contexts/AudioContext';
 import mapImage from '@/assets/floating_map.png';
 import mapMask from '@/assets/floating_map_mask.png';
@@ -183,58 +184,13 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
         }));
         setThronglings(loadedThronglings);
       } else {
-        // Seed initial thronglings
-        const isMobile = window.innerWidth < 768;
-        const count = isMobile ? 50 : 80;
-        
-        const newThronglings: Throngling[] = [];
-        const dbInserts = [];
-        
-        for (let i = 0; i < count; i++) {
-          const pos = getRandomWalkablePosition();
-          const vx = (Math.random() - 0.5) * THRONGLING_SPEED;
-          const vy = (Math.random() - 0.5) * THRONGLING_SPEED;
-          
-          const throngling: Throngling = {
-            id: `t-${Date.now()}-${i}`,
-            x: pos.x,
-            y: pos.y,
-            vx,
-            vy,
-            state: 'wander',
-            isAlive: true,
-            isDragging: false,
-            bodyColor: '#F5C86A',
-            accentColor: '#FF7F2A',
-            direction: 'right',
-            name: THRONG_NAMES[Math.floor(Math.random() * THRONG_NAMES.length)],
-          };
-
-          newThronglings.push(throngling);
-          dbInserts.push({
-            id: throngling.id,
-            x: throngling.x,
-            y: throngling.y,
-            vx: throngling.vx,
-            vy: throngling.vy,
-            state: throngling.state,
-            is_alive: throngling.isAlive,
-            body_color: throngling.bodyColor,
-            accent_color: throngling.accentColor,
-            name: throngling.name,
-          });
-        }
-        
-        // Insert into database
-        const { error: insertError } = await supabase
-          .from('thronglings')
-          .insert(dbInserts);
-
-        if (insertError) {
-          console.error('Error seeding thronglings:', insertError);
-        }
-
-        setThronglings(newThronglings);
+        // Empty island. We deliberately do NOT seed from the client anymore:
+        // anon writes to thronglings are blocked by RLS (all spawns must go
+        // through the wallet-gated spawn-throng function), and client-only
+        // seeds would be phantom throngs that don't persist or sync. The world
+        // is whatever real, wallet-backed spawns have created.
+        console.log('No thronglings yet — waiting for the first wallet-backed spawn.');
+        setThronglings([]);
       }
     };
 
@@ -432,8 +388,15 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
         return;
       }
       const walletAddr = publicKey.toString();
+      let proof;
+      try {
+        proof = await getOwnershipProof(wallet);
+      } catch {
+        toast({ title: "Wallet proof needed", description: "Sign the one-time ownership message to play.", variant: "destructive" });
+        return;
+      }
       const doSpawn = () => supabase.functions.invoke('spawn-throng', {
-        body: { wallet: walletAddr, name, characterType, x, y },
+        body: { ...proof, name, characterType, x, y },
       });
 
       try {
@@ -714,46 +677,53 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
 
         // Call edge function to validate tool use
         try {
-          // Import and sign message
-          const { signMessageCached } = await import('@/lib/walletSignature');
-          
-          let signedMessage;
+          // Gate the tool: 1 free per wallet, then 0.002 SOL. The use-tool edge
+          // function counts per-wallet uses server-side; verify-payment confirms
+          // the on-chain SOL before a paid use is granted.
+          const toolWallet = publicKey.toString();
+          let toolProof;
           try {
-            // Use cached signing to avoid excessive popups for rapid tool uses
-            signedMessage = await signMessageCached(
-              wallet,
-              'use-tool',
-              30000 // 30 second cache
-            );
-          } catch (signError) {
-            console.log('User declined to sign:', signError);
+            toolProof = await getOwnershipProof(wallet);
+          } catch {
+            toast({ title: "Wallet proof needed", description: "Sign the one-time ownership message to use tools.", variant: "destructive" });
             onToolUsed();
             return;
           }
-
-          const { data, error } = await supabase.functions.invoke('use-tool', {
-            body: {
-              walletAddress: publicKey.toString(),
-              message: signedMessage.message,
-              signature: signedMessage.signature,
-              timestamp: signedMessage.timestamp,
-              toolId: selectedTool,
-              x,
-              y,
-              usePaidUse: false
-            }
+          const callUseTool = () => supabase.functions.invoke('use-tool', {
+            body: { ...toolProof, toolId: selectedTool },
           });
+          let { data, error } = await callUseTool();
+          let td = data as any;
 
-          // Check for error response - silently fail without popup
-          if (error) {
-            console.log('Tool use failed (silent):', error);
-            onToolUsed();
-            return;
+          if (td?.error === 'payment_required') {
+            toast({ title: "1 free tool used", description: `Approve ${td.price_sol} SOL to use a tool.` });
+            try {
+              const lamports = Math.round(td.price_sol * LAMPORTS_PER_SOL);
+              const tx = new Transaction().add(SystemProgram.transfer({
+                fromPubkey: publicKey, toPubkey: new PublicKey(td.treasury), lamports,
+              }));
+              tx.feePayer = publicKey;
+              tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+              const sig = await sendTransaction(tx, connection);
+              await connection.confirmTransaction(sig, 'confirmed');
+              const v = await supabase.functions.invoke('verify-payment', { body: { txSig: sig, wallet: toolWallet, kind: 'tool' } });
+              if (!(v.data as any)?.success) {
+                toast({ title: "Payment not verified", description: "Give it a second and try again.", variant: "destructive" });
+                onToolUsed();
+                return;
+              }
+            } catch {
+              toast({ title: "Payment cancelled", variant: "destructive" });
+              onToolUsed();
+              return;
+            }
+            ({ data, error } = await callUseTool());
+            td = data as any;
           }
 
-          // Check data.error (for cases where response is 200 but contains error)
-          if (data?.error) {
-            console.log('Tool use failed (silent):', data);
+          // Any other error -> silently stop (never apply the effect unpaid)
+          if (error || td?.error) {
+            console.log('Tool use failed (silent):', error || td);
             onToolUsed();
             return;
           }
