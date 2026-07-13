@@ -63,7 +63,7 @@ const wanderAt = (id: string, t: number): { x: number; y: number } => {
   const p2 = ((s >>> 7) % 6283) / 1000;
   const p3 = ((s >>> 14) % 6283) / 1000;
   const sp = 0.00022; // slow roam
-  const AX = 95, AY = 72;
+  const AX = 78, AY = 56;
   return {
     x: Math.sin(t * sp + p1) * AX + Math.sin(t * sp * 0.53 + p2) * (AX * 0.45),
     y: Math.cos(t * sp * 0.8 + p1) * AY + Math.cos(t * sp * 0.47 + p3) * (AY * 0.5),
@@ -1683,10 +1683,18 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
 
         const w = wanderAt(t.id, now);
         const wPrev = wanderAt(t.id, now - 120);
+        // Keep the roam on actual walkable island terrain: if the target lands on
+        // ocean, shrink the offset toward home (which is walkable). Deterministic
+        // because every client shares the same island mask.
+        let tx = clampX(home.x + w.x), ty = clampY(home.y + w.y);
+        if (!isWalkable(tx, ty)) {
+          tx = clampX(home.x + w.x * 0.5); ty = clampY(home.y + w.y * 0.5);
+          if (!isWalkable(tx, ty)) { tx = clampX(home.x); ty = clampY(home.y); }
+        }
         return {
           ...t,
-          x: clampX(home.x + w.x),
-          y: clampY(home.y + w.y),
+          x: tx,
+          y: ty,
           vx: 0,
           vy: 0,
           direction: getThronglingDirection(w.x - wPrev.x, w.y - wPrev.y),

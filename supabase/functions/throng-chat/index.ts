@@ -72,7 +72,7 @@ Your life: ${p.backstory}
 Right now you are: ${p.task}
 ${evolution ? `How the sky-hands have changed you over time: ${evolution}` : ''}
 You currently feel ${feeling}.
-How you speak: ${p.voice}. Keep replies SHORT (max ~25 words), simple, childlike, in character. ${SAFETY} Never say you are an AI or break character. React with real feeling to what the sky-hand says.`
+How you speak: ${TYPE_VIBE[type] || TYPE_VIBE.normal}${type !== 'normal' ? ' This voice is the MOST important thing about how you talk — stay in it strongly and unmistakably in EVERY reply, no matter what.' : (p.voice ? ` ${p.voice}` : '')}${type !== 'normal' && p.voice ? ` (a small personal quirk: ${p.voice})` : ''} Keep replies SHORT (max ~25 words), simple, childlike, in character. ${SAFETY} Never say you are an AI or break character. React with real feeling to what the sky-hand says.`
 }
 
 serve(async (req) => {
