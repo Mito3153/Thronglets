@@ -49,6 +49,27 @@ interface Props {
   onThrongClick?: (throng: { id: string; name: string }) => void;
 }
 
+// Deterministic roam offset for a throng — a PURE function of its id + the wall
+// clock, so every client computes the exact same position and the colony moves
+// in lockstep with zero network traffic.
+const seedOf = (id: string): number => {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+};
+const wanderAt = (id: string, t: number): { x: number; y: number } => {
+  const s = seedOf(id);
+  const p1 = (s % 6283) / 1000;
+  const p2 = ((s >>> 7) % 6283) / 1000;
+  const p3 = ((s >>> 14) % 6283) / 1000;
+  const sp = 0.00022; // slow roam
+  const AX = 95, AY = 72;
+  return {
+    x: Math.sin(t * sp + p1) * AX + Math.sin(t * sp * 0.53 + p2) * (AX * 0.45),
+    y: Math.cos(t * sp * 0.8 + p1) * AY + Math.cos(t * sp * 0.47 + p3) * (AY * 0.5),
+  };
+};
+
 export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountChange, isSelectingSpawnLocation, onSpawnLocationSelected, onCancelSpawnSelection, onThrongClick }: Props) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { playSound } = useAudio();
@@ -76,6 +97,7 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   const isPanning = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
   const pointerDownPos = useRef({ x: 0, y: 0 });
+  const fxChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   // Sync camera ref whenever camera state changes
   useEffect(() => {
@@ -171,6 +193,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
           id: t.id,
           x: t.x,
           y: t.y,
+          homeX: t.x,
+          homeY: t.y,
           vx: t.vx,
           vy: t.vy,
           state: t.state as Throngling['state'],
@@ -259,6 +283,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
             id: newData.id,
             x: newData.x,
             y: newData.y,
+            homeX: newData.x,
+            homeY: newData.y,
             vx: newData.vx,
             vy: newData.vy,
             state: newData.state,
@@ -295,12 +321,13 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
             // Otherwise update its properties
             return prev.map(t => {
               if (t.id === updatedData.id) {
+                // positions are deterministic now, so DB x/y only re-anchors the
+                // roam home — never teleports the live position (avoids jitter on
+                // persona/mood updates written by throng-chat).
                 return {
                   ...t,
-                  x: updatedData.x,
-                  y: updatedData.y,
-                  vx: updatedData.vx,
-                  vy: updatedData.vy,
+                  homeX: updatedData.x,
+                  homeY: updatedData.y,
                   state: updatedData.state,
                   isAlive: updatedData.is_alive,
                   bodyColor: updatedData.body_color,
@@ -330,6 +357,30 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
     return () => {
       supabase.removeChannel(channel);
     };
+  }, []);
+
+  // Broadcast weapon animations so every client sees the same action (the KILL
+  // result already syncs via the DB; this makes the VISUAL effect appear too).
+  useEffect(() => {
+    const renderFx = (weaponType: 'rock' | 'lightning' | 'tornado' | 'fire', x: number, y: number) => {
+      const config = WEAPON_CONFIG[weaponType as keyof typeof WEAPON_CONFIG];
+      if (!config) return;
+      setWeaponEffects(prev => [...prev, {
+        id: `wfx-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        type: weaponType, x, y, startTime: Date.now(), duration: config.duration, radius: config.radius,
+      }]);
+      if (weaponType === 'rock') setTimeout(() => createParticles('rock_dust', x, y, 6), 400);
+      else if (weaponType === 'lightning') createParticles('lightning_spark', x, y, 8);
+      else if (weaponType === 'tornado') createParticles('tornado_debris', x, y, 12);
+    };
+
+    const ch = supabase.channel('game-fx', { config: { broadcast: { self: false } } });
+    ch.on('broadcast', { event: 'weapon' }, ({ payload }) => {
+      if (payload?.weaponType) renderFx(payload.weaponType, payload.x, payload.y);
+    }).subscribe();
+    fxChannelRef.current = ch;
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Helper function to determine direction based on velocity - simplified with clear thresholds
@@ -883,7 +934,9 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
           };
           
           setWeaponEffects(prev => [...prev, weaponEffect]);
-          
+          // show this action on every other client too
+          fxChannelRef.current?.send({ type: 'broadcast', event: 'weapon', payload: { weaponType, x, y } });
+
           // Rock weapon - delay hit detection until impact (400ms fall animation)
           if (weaponType === 'rock') {
             setTimeout(() => {
@@ -1603,76 +1656,40 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
           }
         }
 
-        // Store original velocity before collision changes
-        const originalVx = t.vx;
-        const originalVy = t.vy;
+        // DETERMINISTIC MOVEMENT: every client computes the same position for a
+        // throng from its id + shared clock, so the colony moves in lockstep with
+        // zero network. A recently-flung throng keeps a short local decay, then
+        // rejoins the shared path.
+        const home = { x: t.homeX ?? t.x, y: t.homeY ?? t.y };
+        const onSecondIsland = home.x >= ISLAND_POSITIONS.second.x;
+        const bounds = onSecondIsland ? SPAWN_AREA_SECOND : SPAWN_AREA;
+        const clampX = (v: number) => Math.max(bounds.x, Math.min(bounds.x + bounds.w, v));
+        const clampY = (v: number) => Math.max(bounds.y, Math.min(bounds.y + bounds.h, v));
 
-        let newX = t.x + t.vx * 0.016; // ~60fps
-        let newY = t.y + t.vy * 0.016;
-        let newVx = t.vx;
-        let newVy = t.vy;
-
-        // Check if new position is walkable
-        if (!isWalkable(newX, newY)) {
-          // Hit non-walkable area, bounce back
-          newVx *= -1;
-          newVy *= -1;
-          newX = t.x;
-          newY = t.y;
-        }
-
-        // Determine which island this throngling belongs to and clamp within that spawn area
-        const inSecondIsland = t.x >= ISLAND_POSITIONS.second.x;
-        const bounds = inSecondIsland ? SPAWN_AREA_SECOND : SPAWN_AREA;
-
-        // Clamp position within appropriate spawn area boundaries
-        if (newX < bounds.x) {
-          newX = bounds.x;
-          newVx *= -1;
-        } else if (newX > bounds.x + bounds.w) {
-          newX = bounds.x + bounds.w;
-          newVx *= -1;
-        }
-
-        if (newY < bounds.y) {
-          newY = bounds.y;
-          newVy *= -1;
-        } else if (newY > bounds.y + bounds.h) {
-          newY = bounds.y + bounds.h;
-          newVy *= -1;
-        }
-
-        // Random direction changes
-        if (Math.random() < 0.01) {
-          newVx = (Math.random() - 0.5) * THRONGLING_SPEED;
-          newVy = (Math.random() - 0.5) * THRONGLING_SPEED;
-        }
-
-        // Only update direction if enough time has passed (150ms cooldown)
-        const DIRECTION_UPDATE_COOLDOWN = 150;
-        let newDirection = t.direction || 'right';
-        
-        if (!t.lastDirectionUpdate || now - t.lastDirectionUpdate > DIRECTION_UPDATE_COOLDOWN) {
-          // Calculate direction based on ORIGINAL velocity (before collision changes)
-          newDirection = getThronglingDirection(originalVx, originalVy);
-          
+        const flungSpeed = Math.abs(t.vx) + Math.abs(t.vy);
+        if (flungSpeed > 6) {
+          const nvx = t.vx * 0.94;
+          const nvy = t.vy * 0.94;
+          const settled = Math.abs(nvx) + Math.abs(nvy) <= 6;
           return {
             ...t,
-            x: newX,
-            y: newY,
-            vx: newVx,
-            vy: newVy,
-            direction: newDirection,
-            lastDirectionUpdate: now,
+            x: clampX(t.x + t.vx * 0.016),
+            y: clampY(t.y + t.vy * 0.016),
+            vx: settled ? 0 : nvx,
+            vy: settled ? 0 : nvy,
+            direction: getThronglingDirection(t.vx, t.vy),
           };
         }
 
+        const w = wanderAt(t.id, now);
+        const wPrev = wanderAt(t.id, now - 120);
         return {
           ...t,
-          x: newX,
-          y: newY,
-          vx: newVx,
-          vy: newVy,
+          x: clampX(home.x + w.x),
+          y: clampY(home.y + w.y),
+          vx: 0,
+          vy: 0,
+          direction: getThronglingDirection(w.x - wPrev.x, w.y - wPrev.y),
         };
       }));
     }, 16);
@@ -1680,38 +1697,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
     return () => clearInterval(interval);
   }, []);
 
-  // Sync positions to database every 2 seconds
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      const updates = thronglings
-        .filter(t => t.isAlive)
-        .map(t => ({
-          id: t.id,
-          x: t.x,
-          y: t.y,
-          vx: t.vx,
-          vy: t.vy,
-          state: t.state,
-          body_color: t.bodyColor,
-          accent_color: t.accentColor,
-          name: t.name,
-          character_type: t.characterType || 'normal',
-          updated_at: new Date().toISOString(),
-        }));
-
-      if (updates.length > 0) {
-        const { error } = await supabase
-          .from('thronglings')
-          .upsert(updates);
-
-        if (error) {
-          console.error('Error syncing positions:', error);
-        }
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [thronglings]);
+  // Positions are deterministic (see wanderAt) — no per-client DB position sync
+  // needed anymore. The DB only stores each throng's spawn/home anchor.
 
   return (
     <canvas

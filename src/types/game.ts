@@ -14,6 +14,8 @@ export interface Throngling {
   festivalBuff?: boolean;
   festivalBuffStartTime?: number;
   direction?: 'left' | 'right' | 'up';
+  homeX?: number; // fixed anchor (spawn pos) the throng deterministically roams around
+  homeY?: number;
   lastDirectionUpdate?: number;
   lastSoundTime?: number;
   lastSoundType?: 'heyy' | 'jumping' | 'kwaa';
