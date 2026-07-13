@@ -230,6 +230,13 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore game hotkeys while the user is typing in a text field (e.g. the
+      // throng chat box) — otherwise WASD pans the camera as they type.
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
       if (['w', 'a', 's', 'd', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key.toLowerCase())) {
         keysPressed.current.add(e.key.toLowerCase());
       }
