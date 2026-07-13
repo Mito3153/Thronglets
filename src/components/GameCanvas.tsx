@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { payForAction } from '@/lib/payForAction';
 import { Throngling, Camera, GameEvent, WeaponEffect, DeathAnimation, Particle, ScreenShake } from '@/types/game';
 import { MAP_SIZE, SPAWN_AREA, SPAWN_AREA_SECOND, ISLAND_POSITIONS, HALLOWEEN_ISLAND_WIDTH, THRONGLING_SPEED, WEAPON_CONFIG, DEATH_ANIMATION_DURATION, BLOOD_SPLASH_DURATION, MAX_POPULATION, THRONG_NAMES } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
@@ -406,22 +406,9 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
         // Free spawns used up -> collect 0.001 SOL, verify on-chain, then retry.
         if (d?.error === 'payment_required') {
           toast({ title: "5 free spawns used", description: `Approve ${d.price_sol} SOL to spawn another.` });
-          try {
-            const lamports = Math.round(d.price_sol * LAMPORTS_PER_SOL);
-            const tx = new Transaction().add(SystemProgram.transfer({
-              fromPubkey: publicKey, toPubkey: new PublicKey(d.treasury), lamports,
-            }));
-            tx.feePayer = publicKey;
-            tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-            const sig = await sendTransaction(tx, connection);
-            await connection.confirmTransaction(sig, 'confirmed');
-            const v = await supabase.functions.invoke('verify-payment', { body: { txSig: sig, wallet: walletAddr, kind: 'spawn' } });
-            if (!(v.data as any)?.success) {
-              toast({ title: "Payment not verified", description: "Give it a second and try again.", variant: "destructive" });
-              return;
-            }
-          } catch {
-            toast({ title: "Payment cancelled", variant: "destructive" });
+          const pay = await payForAction({ connection, publicKey, sendTransaction, treasury: d.treasury, priceSol: d.price_sol, kind: 'spawn' });
+          if (!pay.ok) {
+            toast({ title: pay.reason === 'cancelled' ? "Payment cancelled" : pay.reason === 'network' ? "Network hiccup — try again" : "Payment not verified — try again", variant: "destructive" });
             return;
           }
           ({ data, error } = await doSpawn());
@@ -697,23 +684,9 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
 
           if (td?.error === 'payment_required') {
             toast({ title: "1 free tool used", description: `Approve ${td.price_sol} SOL to use a tool.` });
-            try {
-              const lamports = Math.round(td.price_sol * LAMPORTS_PER_SOL);
-              const tx = new Transaction().add(SystemProgram.transfer({
-                fromPubkey: publicKey, toPubkey: new PublicKey(td.treasury), lamports,
-              }));
-              tx.feePayer = publicKey;
-              tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-              const sig = await sendTransaction(tx, connection);
-              await connection.confirmTransaction(sig, 'confirmed');
-              const v = await supabase.functions.invoke('verify-payment', { body: { txSig: sig, wallet: toolWallet, kind: 'tool' } });
-              if (!(v.data as any)?.success) {
-                toast({ title: "Payment not verified", description: "Give it a second and try again.", variant: "destructive" });
-                onToolUsed();
-                return;
-              }
-            } catch {
-              toast({ title: "Payment cancelled", variant: "destructive" });
+            const pay = await payForAction({ connection, publicKey, sendTransaction, treasury: td.treasury, priceSol: td.price_sol, kind: 'tool' });
+            if (!pay.ok) {
+              toast({ title: pay.reason === 'cancelled' ? "Payment cancelled" : pay.reason === 'network' ? "Network hiccup — try again" : "Payment not verified — try again", variant: "destructive" });
               onToolUsed();
               return;
             }

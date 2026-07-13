@@ -3,7 +3,6 @@ import { ConnectionProvider, WalletProvider as SolanaWalletProvider } from '@sol
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { clusterApiUrl } from '@solana/web3.js';
 
 import '@solana/wallet-adapter-react-ui/styles.css';
 
@@ -12,11 +11,13 @@ interface Props {
 }
 
 export const WalletProvider: FC<Props> = ({ children }) => {
-  // Mainnet — payments are real SOL. Override the RPC with VITE_SOLANA_RPC_URL
-  // (e.g. a Helius URL) for reliability; falls back to the public mainnet RPC.
+  // Mainnet — payments are real SOL. The default Solana RPC
+  // (api.mainnet-beta.solana.com) returns 403 for browser requests, which
+  // breaks sendTransaction, so we default to PublicNode (free, CORS-enabled).
+  // Override with VITE_SOLANA_RPC_URL (e.g. a Helius URL) for higher limits.
   const network = WalletAdapterNetwork.Mainnet;
   const endpoint = useMemo(
-    () => import.meta.env.VITE_SOLANA_RPC_URL || clusterApiUrl(network),
+    () => import.meta.env.VITE_SOLANA_RPC_URL || 'https://solana-rpc.publicnode.com',
     [network]
   );
   

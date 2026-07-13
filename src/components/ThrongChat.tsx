@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import { PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { supabase } from '@/integrations/supabase/client';
 import { getOwnershipProof } from '@/lib/ownershipProof';
+import { payForAction } from '@/lib/payForAction';
 import { X, Send } from 'lucide-react';
 
 interface Msg { id: string; role: 'user' | 'throngling'; content: string; sender_name: string | null; user_id: string | null; pending?: boolean; }
@@ -83,23 +83,14 @@ export const ThrongChat = ({ throng, onClose }: Props) => {
   const payAndRetry = async () => {
     if (!needPay || !publicKey) return;
     setPaying(true);
-    try {
-      const lamports = Math.round(needPay.price * LAMPORTS_PER_SOL);
-      const tx = new Transaction().add(SystemProgram.transfer({ fromPubkey: publicKey, toPubkey: new PublicKey(needPay.treasury), lamports }));
-      tx.feePayer = publicKey;
-      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-      const sig = await sendTransaction(tx, connection);
-      await connection.confirmTransaction(sig, 'confirmed');
-      const { data } = await supabase.functions.invoke('verify-payment', { body: { txSig: sig, wallet: publicKey.toString(), kind: needPay.kind } });
-      if ((data as any)?.success) {
-        setNeedPay(null);
-        const t = heldText.current; heldText.current = '';
-        if (t) await sendText(t);
-      } else {
-        setMessages((prev) => [...prev, { id: 'pv-' + Date.now(), role: 'throngling', content: "(couldn't verify that payment — give it a second and try again)", sender_name: throng.name, user_id: null }]);
-      }
-    } catch {
-      setMessages((prev) => [...prev, { id: 'pc-' + Date.now(), role: 'throngling', content: '(payment cancelled)', sender_name: throng.name, user_id: null }]);
+    const pay = await payForAction({ connection, publicKey, sendTransaction, treasury: needPay.treasury, priceSol: needPay.price, kind: needPay.kind as 'chat' });
+    if (pay.ok) {
+      setNeedPay(null);
+      const t = heldText.current; heldText.current = '';
+      if (t) await sendText(t);
+    } else {
+      const note = pay.reason === 'cancelled' ? '(payment cancelled)' : pay.reason === 'network' ? '(network hiccup — try again)' : "(couldn't verify that payment — give it a second and try again)";
+      setMessages((prev) => [...prev, { id: 'pv-' + Date.now(), role: 'throngling', content: note, sender_name: throng.name, user_id: null }]);
     }
     setPaying(false);
   };

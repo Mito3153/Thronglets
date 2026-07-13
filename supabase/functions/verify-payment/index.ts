@@ -13,7 +13,8 @@ const json = (obj: unknown, status = 200) =>
 
 const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '')
 const TREASURY = '3zNLW78QNU8SZdH2R3UmMNvSNhA3aNVVzkjVihNxXKUC'
-const RPC = Deno.env.get('SOLANA_RPC') ?? 'https://api.mainnet-beta.solana.com'
+// api.mainnet-beta.solana.com 403s many requests; PublicNode is free + open.
+const RPC = Deno.env.get('SOLANA_RPC') ?? 'https://solana-rpc.publicnode.com'
 
 // price in lamports per action (1 SOL = 1e9 lamports)
 const PRICE: Record<string, number> = {
