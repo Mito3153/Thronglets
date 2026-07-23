@@ -2,15 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { payForAction } from '@/lib/payForAction';
 import { Throngling, Camera, GameEvent, WeaponEffect, DeathAnimation, Particle, ScreenShake } from '@/types/game';
-import { MAP_SIZE, SPAWN_AREA, SPAWN_AREA_SECOND, ISLAND_POSITIONS, HALLOWEEN_ISLAND_WIDTH, THRONGLING_SPEED, WEAPON_CONFIG, DEATH_ANIMATION_DURATION, BLOOD_SPLASH_DURATION, MAX_POPULATION, THRONG_NAMES } from '@/lib/constants';
+import { MAP_SIZE, SPAWN_AREA, ISLAND_POSITIONS, THRONGLING_SPEED, WEAPON_CONFIG, DEATH_ANIMATION_DURATION, BLOOD_SPLASH_DURATION, MAX_POPULATION, THRONG_NAMES } from '@/lib/constants';
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { getOwnershipProof } from '@/lib/ownershipProof';
 import { useAudio } from '@/contexts/AudioContext';
 import mapImage from '@/assets/floating_map.png';
 import mapMask from '@/assets/floating_map_mask.png';
-import halloweenMapImage from '@/assets/halloween_map.png';
-import halloweenMapMask from '@/assets/halloween_map_mask.png';
 import thronglingAlive from '@/assets/throngling.png';
 import thronglingLeft from '@/assets/throngling-left.png';
 import thronglingRight from '@/assets/throngling-right.png';
@@ -21,6 +19,7 @@ import lightningImg from '@/assets/lightning.png';
 import meteorImg from '@/assets/meteor.png';
 import tornadoImg from '@/assets/tornado.png';
 import fireImg from '@/assets/fire.png';
+import festivalImg from '@/assets/festival.png';
 // Character sprites
 import adolfRight from '@/assets/adolf-right.png';
 import adolfLeft from '@/assets/adolf-left.png';
@@ -98,6 +97,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   const lastMousePos = useRef({ x: 0, y: 0 });
   const pointerDownPos = useRef({ x: 0, y: 0 });
   const fxChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  // throngId -> last time a chat message was seen, for the "in conversation" bubble
+  const chatActivityRef = useRef<Map<string, number>>(new Map());
 
   // Sync camera ref whenever camera state changes
   useEffect(() => {
@@ -116,8 +117,6 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
 
     loadImage(mapImage, 'map');
     loadImage(mapMask, 'mask');
-    loadImage(halloweenMapImage, 'halloweenMap');
-    loadImage(halloweenMapMask, 'halloweenMask');
     loadImage(thronglingAlive, 'alive');
     loadImage(thronglingLeft, 'left');
     loadImage(thronglingRight, 'right');
@@ -128,7 +127,7 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
     loadImage(meteorImg, 'rock');
     loadImage(tornadoImg, 'tornado');
     loadImage(fireImg, 'fire');
-    loadImage('/src/assets/festival.png', 'festival');
+    loadImage(festivalImg, 'festival');
     // Load character sprites
     loadImage(thronglingRight, 'normal-right');
     loadImage(thronglingLeft, 'normal-left');
@@ -150,21 +149,20 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
     loadImage(pepeUp, 'pepe-up');
   }, []);
 
-  // Create mask canvas when both masks are loaded
+  // Create mask canvas when the island mask is loaded (single island now)
   useEffect(() => {
-    if (images.mask && images.halloweenMask && !maskCanvasRef.current) {
+    if (images.mask && !maskCanvasRef.current) {
       const maskCanvas = document.createElement('canvas');
       maskCanvas.width = MAP_SIZE;
       maskCanvas.height = 768;
       const ctx = maskCanvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(images.mask, 0, 0, 768, 768);
-        ctx.drawImage(images.halloweenMask, ISLAND_POSITIONS.second.x, 0, HALLOWEEN_ISLAND_WIDTH, 768);
         maskCanvasRef.current = maskCanvas;
         console.log('✅ Mask canvas created successfully');
       }
     }
-  }, [images.mask, images.halloweenMask]);
+  }, [images.mask]);
 
   // Initialize thronglings from database
   useEffect(() => {
@@ -390,6 +388,18 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Track chat activity per throng (shared via realtime) so a chat bubble can
+  // float over any throng that's currently being talked to — visible to everyone.
+  useEffect(() => {
+    const ch = supabase.channel('chat-activity')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, (payload) => {
+        const row = payload.new as any;
+        if (row?.throngling_id) chatActivityRef.current.set(row.throngling_id, Date.now());
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
+
   // Helper function to determine direction based on velocity - simplified with clear thresholds
   const getThronglingDirection = (vx: number, vy: number): 'left' | 'right' | 'up' => {
     const MIN_VELOCITY = 0.8;
@@ -600,9 +610,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
   const getRandomWalkablePosition = (): { x: number; y: number } => {
     const maxAttempts = 100;
     
-    // Randomly choose which island to spawn on (50/50 chance)
-    const useSecondIsland = Math.random() > 0.5;
-    const spawnArea = useSecondIsland ? SPAWN_AREA_SECOND : SPAWN_AREA;
+    // Single island now — always the first island's spawn area
+    const spawnArea = SPAWN_AREA;
     
     for (let i = 0; i < maxAttempts; i++) {
       const x = spawnArea.x + Math.random() * spawnArea.w;
@@ -1317,11 +1326,8 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
       );
       ctx.scale(currentCamera.zoom, currentCamera.zoom);
 
-      // Draw both islands
+      // Draw the island
       ctx.drawImage(images.map, ISLAND_POSITIONS.first.x, ISLAND_POSITIONS.first.y, 768, 768);
-      if (images.halloweenMap) {
-        ctx.drawImage(images.halloweenMap, ISLAND_POSITIONS.second.x, ISLAND_POSITIONS.second.y, HALLOWEEN_ISLAND_WIDTH, 768);
-      }
 
       // Draw bottom layer particles (dust, debris)
       particles.forEach(p => {
@@ -1566,6 +1572,19 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
             const heartY = t.name ? t.y - size / 2 - 26 : t.y - size / 2 - 8;
             ctx.fillText('❤️', t.x, heartY);
           }
+
+          // Chat bubble over any throng currently in a conversation (shared via
+          // realtime, so everyone can see who's being talked to). Follows the
+          // throng and fades out ~25s after the last message.
+          const lastChat = chatActivityRef.current.get(t.id);
+          if (lastChat && Date.now() - lastChat < 25000) {
+            const bob = Math.sin(Date.now() / 260) * 1.5;
+            ctx.font = '13px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'bottom';
+            const bubbleY = (t.name ? t.y - size / 2 - 15 : t.y - size / 2 - 7) + bob;
+            ctx.fillText('💬', t.x, bubbleY);
+          }
         }
       });
       
@@ -1668,8 +1687,7 @@ export const GameCanvas = ({ onEventCreate, selectedTool, onToolUsed, onCountCha
         // zero network. A recently-flung throng keeps a short local decay, then
         // rejoins the shared path.
         const home = { x: t.homeX ?? t.x, y: t.homeY ?? t.y };
-        const onSecondIsland = home.x >= ISLAND_POSITIONS.second.x;
-        const bounds = onSecondIsland ? SPAWN_AREA_SECOND : SPAWN_AREA;
+        const bounds = SPAWN_AREA;
         const clampX = (v: number) => Math.max(bounds.x, Math.min(bounds.x + bounds.w, v));
         const clampY = (v: number) => Math.max(bounds.y, Math.min(bounds.y + bounds.h, v));
 

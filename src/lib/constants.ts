@@ -24,8 +24,8 @@ export const THRONG_NAMES = [
   'Jello', 'Bristle', 'Nudge', 'Koru', 'Tink', 'Gloop', 'Minty', 'Zippa', 'Snib', 'Wren',
 ];
 
-export const HALLOWEEN_ISLAND_WIDTH = 1280; // Natural width of Halloween island asset
-export const MAP_SIZE = 768 + 500 + HALLOWEEN_ISLAND_WIDTH; // 2548
+export const HALLOWEEN_ISLAND_WIDTH = 1280; // (Halloween island removed — kept for any legacy refs)
+export const MAP_SIZE = 768; // single island now (was 768 + 500 gap + Halloween 1280)
 export const SPAWN_AREA = { x: 150, y: 150, w: 468, h: 468 };
 export const SPAWN_AREA_SECOND = { x: 1418, y: 150, w: 980, h: 468 }; // Adjusted for wider Halloween island
 export const ISLAND_POSITIONS = {
