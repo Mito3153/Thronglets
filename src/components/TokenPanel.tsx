@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Card } from '@/components/ui/card';
-import { ExternalLink, Twitter, MessageCircle } from 'lucide-react';
+import { ExternalLink, Twitter, MessageCircle, Copy } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { MinimizeButton } from '@/components/MinimizeButton';
 import { TOKEN_LINKS, CONTRACT_ADDRESS } from '@/lib/tokenLinks';
+import { toast } from '@/hooks/use-toast';
 
 export const TokenPanel = () => {
   const { connected } = useWallet();
@@ -23,10 +24,23 @@ export const TokenPanel = () => {
         <CollapsibleContent>
           <div className="text-xs opacity-80 -mt-1">Observatory v1.0</div>
 
-          {/* Contract address — sits here empty until the fresh $THRONG launches */}
+          {/* Contract address */}
           <div className="glass-inset p-3 rounded-xl space-y-1 mt-2">
-            <span className="text-muted-foreground text-[10px]">Contract Address</span>
-            <div className="text-cyan/60 font-mono text-[10px] break-all">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-[10px]">Contract Address</span>
+              {CONTRACT_ADDRESS && (
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(CONTRACT_ADDRESS);
+                    toast({ title: 'Copied!', description: 'Contract address copied to clipboard' });
+                  }}
+                  className="glass-button px-2 py-0.5 text-[9px] flex items-center gap-1 text-cyan"
+                >
+                  <Copy className="w-3 h-3" /> Copy
+                </button>
+              )}
+            </div>
+            <div className={`font-mono text-[10px] break-all ${CONTRACT_ADDRESS ? 'text-cyan' : 'text-cyan/60'}`}>
               {CONTRACT_ADDRESS || 'TBA — $THRONG launching soon 🔜'}
             </div>
           </div>
