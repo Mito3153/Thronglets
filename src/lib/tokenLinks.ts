@@ -6,7 +6,7 @@ export const TOKEN_LINKS = {
   DEXSCREENER: "",
   PUMP_FUN: "",
   SOLSCAN: "",
-  TWITTER: "https://twitter.com/throngverse",
+  TWITTER: "https://x.com/i/communities/2018907580832129049",
   TELEGRAM: "https://t.me/QDCGroup",
   DISCORD: "https://discord.gg/throngverse",
 };
