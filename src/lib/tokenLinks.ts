@@ -7,6 +7,6 @@ export const TOKEN_LINKS = {
   PUMP_FUN: "",
   SOLSCAN: "",
   TWITTER: "https://twitter.com/throngverse",
-  TELEGRAM: "https://t.me/THRONGLETSONSOL",
+  TELEGRAM: "https://t.me/QDCGroup",
   DISCORD: "https://discord.gg/throngverse",
 };
